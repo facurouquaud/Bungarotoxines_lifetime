@@ -318,3 +318,187 @@ def fit_taus_with_fixed_N(x, y, N1, N2, bin_width,
 
 bin_width = t[1] - t[0]
 res = fit_taus_with_fixed_N(x, y, N_1, N_2, bin_width, tau1_p0=2.33, tau2_p0=1.5, fit_C=True)
+
+
+#%% Pasemos a estimar la posición de ambos emisores
+
+
+np.random.seed(0)
+
+# --- Simulation parameters ---
+nx, ny = 25, 25
+pix_size = 50.0           # nm per pixel (make smaller so 8 nm is resolvable)
+sx, sy = 4,4        # PSF sigma in pixels
+N1 = 4000.0
+N2 = 4000.0
+bg = 5.0
+
+# emitter 1 known position (pixels)
+x1_px, y1_px = 10.0, 10.0
+# emitter 2 true position: offset by 8 nm from emitter1
+sep_nm = 8.0
+sep_px = sep_nm / pix_size
+angle = 50* np.pi / 180.0
+x2_true = x1_px + sep_px * np.cos(angle)
+y2_true = y1_px + sep_px * np.sin(angle)
+
+# coordinate grid
+x = np.arange(nx); y = np.arange(ny)
+Y, X = np.meshgrid(x, y, indexing='ij')
+
+def gauss2d_norm(x0, y0, sx, sy, Xgrid, Ygrid):
+    g = np.exp(-0.5 * (((Xgrid - x0)**2) / sx**2 + ((Ygrid - y0)**2) / sy**2))
+    return g / g.sum()
+
+psf1 = gauss2d_norm(x1_px, y1_px, sx, sy, X, Y)
+psf2 = gauss2d_norm(x2_true, y2_true, sx, sy, X, Y)
+img_mean = N1 * psf1 + N2 * psf2 + bg
+img = np.random.poisson(img_mean)
+
+# Flatten arrays for fitting with curve_fit
+Xflat = X.ravel()
+Yflat = Y.ravel()
+Dflat = img.ravel()
+
+# Model function for curve_fit: first argument is positional data (stacked), then parameters x2,y2
+def model_flat(pos, x2, y2):
+    Xp = pos[0]; Yp = pos[1]
+    # analytic normalized Gaussian (continuous normalization)
+    g1 = np.exp(-0.5 * (((Xp - x1_px)**2) / sx**2 + ((Yp - y1_px)**2) / sy**2))
+    g1 = g1 / (2*np.pi*sx*sy)   # continuous normalization
+    g2 = np.exp(-0.5 * (((Xp - x2)**2) / sx**2 + ((Yp - y2)**2) / sy**2))
+    g2 = g2 / (2*np.pi*sx*sy)
+    model = N1 * g1 + N2 * g2 + bg
+    return model
+
+
+# Prepare pos array for curve_fit (shape (2, Npix))
+pos = np.vstack((Xflat, Yflat))
+
+# initial guess for x2,y2 near emitter1 (not in corner)
+x2_init = x1_px + 0.5
+y2_init = y1_px + 0.5
+
+# bounds to keep within image
+bounds = ([0.0, 0.0], [nx - 1.0, ny - 1.0])
+
+# curve_fit least-squares fit (fits parameters x2,y2)
+popt, pcov = curve_fit(model_flat, pos, Dflat, p0=[x2_init, y2_init], bounds=bounds, maxfev=20000)
+x2_fit, y2_fit = popt
+dist_px = np.hypot(x2_fit - x1_px, y2_fit - y1_px)
+dist_nm = dist_px * pix_size
+
+print(f"True separation (nm): {sep_nm:.3f}")
+print(f"Fitted separation (nm): {dist_nm:.3f}")
+print(f"x2_true, y2_true = {x2_true:.4f}, {y2_true:.4f}")
+print(f"x2_fit,  y2_fit  = {x2_fit:.4f}, {y2_fit:.4f}")
+
+# Plot results
+plt.figure()
+plt.imshow(img, origin='lower', cmap='hot')
+plt.scatter([x1_px, x2_true], [y1_px, y2_true], c=['red','blue'], marker='x', s=80, label='true')
+plt.scatter([x2_fit], [y2_fit], c='black', marker='+', s=80, label='fit')
+plt.title('Simulated image ')
+plt.legend(loc='upper right')
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+distancia = []
+for i in range(1000):
+    # --- Simulation parameters ---
+    nx, ny = 100, 100
+    pix_size = 50.0           # nm per pixel
+    sx, sy = 1, 1            # PSF sigma in pixels
+    N1 = 1000.0
+    N2 = 1000.0
+    bg = 10.0
+    
+    # emitter 1 known position (pixels)
+    x1_px, y1_px = 15.0, 15.0
+    
+    # emitter 2 true position: offset by 8 nm from emitter1
+    sep_nm = 8.0
+    sep_px = sep_nm / pix_size
+    angle = 50 * np.pi / 180.0
+    x2_true = x1_px + sep_px * np.cos(angle)
+    y2_true = y1_px + sep_px * np.sin(angle)
+    
+    # coordinate grid
+    x = np.arange(nx); y = np.arange(ny)
+    Y, X = np.meshgrid(x, y, indexing='ij')  # mismo que usabas
+    
+    def gauss2d_norm(x0, y0, sx, sy, Xgrid, Ygrid):
+        g = np.exp(-0.5 * (((Xgrid - x0)**2) / sx**2 + ((Ygrid - y0)**2) / sy**2))
+        return g / g.sum()
+    
+    # imagen simulada
+    psf1 = gauss2d_norm(x1_px, y1_px, sx, sy, X, Y)
+    psf2 = gauss2d_norm(x2_true, y2_true, sx, sy, X, Y)
+    img_mean = N1 * psf1 + N2 * psf2 + bg
+    img = np.random.poisson(img_mean)
+    
+    # aplanar para curve_fit
+    Xflat = X.ravel()
+    Yflat = Y.ravel()
+    Dflat = img.ravel()
+    pos = np.vstack((Xflat, Yflat))  # aunque no lo usemos explícitamente, curve_fit lo pasa
+    
+    # precomputar PSF1 (es fija)
+    psf1_flat = psf1.ravel()
+    
+    # modelo: usa EXACTAMENTE la misma forma de PSF (gauss2d_norm)
+    def model_flat(pos, x2, y2):
+        psf2 = gauss2d_norm(x2, y2, sx, sy, X, Y)  # usa X,Y globales
+        psf2_flat = psf2.ravel()
+        model = N1 * psf1_flat + N2 * psf2_flat + bg
+        return model
+    
+    # función de ajuste con estructura estilo "ajuste_exponencial"
+    def ajuste_localizacion_doble(pos, data, x2_0, y2_0):
+        p0 = [x2_0, y2_0]
+        bounds = ([0.0, 0.0], [nx - 1.0, ny - 1.0])
+    
+        try:
+            popt, pcov = curve_fit(model_flat, pos, data, p0=p0, bounds=bounds, maxfev=20000)
+        except Exception as e:
+            print("Fit failed:", e)
+            return
+    
+        x2_fit, y2_fit = popt
+        if pcov is None:
+            x2_err = y2_err = np.nan
+        else:
+            errs = np.sqrt(np.abs(np.diag(pcov)))
+            x2_err, y2_err = errs[0], errs[1]
+    
+        # dist_px = np.hypot(x2_fit - x1_px, y2_fit - y1_px)
+        dist_px = np.hypot(x1_px - x2_fit, y1_px - y2_fit)
+        dist_nm = dist_px * pix_size
+        distancia.append(dist_nm)
+    
+    
+    
+    
+        # plots
+    
+        # plt.imshow(img, origin='lower', cmap='hot')
+        # plt.scatter([x1_px, x2_true], [y1_px, y2_true], c=['red','blue'], marker='x', s=80, label='true')
+        # plt.scatter([x2_fit], [y2_fit], c='black', marker='+', s=80, label='fit')
+        # plt.title('Datos simulados')
+        # plt.colorbar(); plt.legend()
+    
+        # plt.tight_layout()
+        # plt.show()
+    
+        print(f"True separation (nm): {sep_nm:.3f}")
+        print(f"Fitted separation (nm): {dist_nm:.3f}")
+        print(f"x2_true, y2_true = {x2_true:.4f}, {y2_true:.4f}")
+        print(f"x2_fit  = {x2_fit:.4f} ± {x2_err:.4f} px")
+        print(f"y2_fit  = {y2_fit:.4f} ± {y2_err:.4f} px")
+    
+    # llamada de ejemplo, con inicialización cerca del emisor 1
+    x2_init = x1_px + 0.3
+    y2_init = y1_px + 0.3
+    ajuste_localizacion_doble(pos, Dflat, x2_init, y2_init)
+print(np.mean(distancia), np.std(distancia))
